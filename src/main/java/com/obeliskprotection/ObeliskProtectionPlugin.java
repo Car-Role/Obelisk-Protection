@@ -22,6 +22,8 @@ import java.util.Arrays;
 import lombok.Getter;
 import com.google.common.collect.ImmutableSet;
 import java.util.Set;
+import net.runelite.api.events.GameObjectSpawned;
+import net.runelite.api.events.GameObjectDespawned;
 
 @Slf4j
 @PluginDescriptor(
@@ -60,6 +62,9 @@ public class ObeliskProtectionPlugin extends Plugin
     };
 
     private static final Set<Integer> POH_REGIONS = ImmutableSet.of(7257, 7513, 7514, 7769, 7770, 8025, 8026);
+
+    @Getter
+    private GameObject pohObelisk = null;
 
     @Override
     protected void startUp()
@@ -114,19 +119,10 @@ public class ObeliskProtectionPlugin extends Plugin
             return;
         }
 
-        // Check if this is a POH obelisk by checking the object ID
-        GameObject obelisk = findObelisk();
-        if (obelisk == null)
+        // Check if we have a tracked POH obelisk
+        if (pohObelisk == null)
         {
-            log.debug("Could not find obelisk object");
-            protectionActive = false;
-            obeliskLocation = null;
-            return;
-        }
-        
-        if (obelisk.getId() != POH_OBELISK_ID)
-        {
-            log.debug("Found obelisk but wrong ID: {}", obelisk.getId());
+            log.debug("No POH obelisk tracked");
             protectionActive = false;
             obeliskLocation = null;
             return;
@@ -141,7 +137,7 @@ public class ObeliskProtectionPlugin extends Plugin
             log.debug("Setting protection active - Risk value {} exceeds threshold {}", 
                 riskValue, config.wealthThreshold());
             protectionActive = true;
-            obeliskLocation = obelisk.getLocalLocation();
+            obeliskLocation = pohObelisk.getLocalLocation();
             log.debug("Obelisk location set to: {}", obeliskLocation);
             
             // Only remove menu entries for teleport-related options
@@ -167,6 +163,31 @@ public class ObeliskProtectionPlugin extends Plugin
                 riskValue, config.wealthThreshold());
             protectionActive = false;
             obeliskLocation = null;
+        }
+    }
+
+    @Subscribe
+    public void onGameObjectSpawned(GameObjectSpawned event)
+    {
+        GameObject obj = event.getGameObject();
+        if (obj.getId() == POH_OBELISK_ID && isInPOH())
+        {
+            log.debug("POH Obelisk spawned");
+            pohObelisk = obj;
+            obeliskLocation = obj.getLocalLocation();
+        }
+    }
+
+    @Subscribe
+    public void onGameObjectDespawned(GameObjectDespawned event)
+    {
+        GameObject obj = event.getGameObject();
+        if (obj.getId() == POH_OBELISK_ID && obj == pohObelisk)
+        {
+            log.debug("POH Obelisk despawned");
+            pohObelisk = null;
+            obeliskLocation = null;
+            protectionActive = false;
         }
     }
 
@@ -282,47 +303,6 @@ public class ObeliskProtectionPlugin extends Plugin
             regionId, instanceRegionId, POH_REGIONS);
         
         return instancePoint != null && POH_REGIONS.contains(instanceRegionId);
-    }
-
-    private GameObject findObelisk()
-    {
-        if (!isInPOH())
-        {
-            return null;
-        }
-
-        Scene scene = client.getScene();
-        Tile[][][] tiles = scene.getTiles();
-        int plane = client.getPlane();
-
-        // Search the entire scene
-        for (int x = 0; x < 104; x++)
-        {
-            for (int y = 0; y < 104; y++)
-            {
-                Tile tile = tiles[plane][x][y];
-                if (tile == null)
-                {
-                    continue;
-                }
-
-                GameObject[] gameObjects = tile.getGameObjects();
-                if (gameObjects == null)
-                {
-                    continue;
-                }
-
-                for (GameObject obj : gameObjects)
-                {
-                    if (obj != null && obj.getId() == POH_OBELISK_ID)
-                    {
-                        log.debug("Found obelisk at scene coordinates: {}, {}", x, y);
-                        return obj;
-                    }
-                }
-            }
-        }
-        return null;
     }
 
     @Provides
